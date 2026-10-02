@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>多边形重叠检测 · 实时 Demo</title>
+  <style>
+    :root { --bg:#0f1a14; --card:#16241c; --line:#28402f; --fg:#e7f0e9; --mut:#8fa89a; --acc:#22c55e; --bad:#ef4444; --warn:#eab308; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 system-ui,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+    .wrap { max-width: 940px; margin:0 auto; padding:24px 18px 60px; }
+    h1 { font-size:19px; margin:0 0 4px; }
+    p.sub { color:var(--mut); margin:0 0 18px; }
+    canvas { background:#0b140f; border:1px solid var(--line); border-radius:12px; display:block; cursor:crosshair; touch-action:none; }
+    .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:12px 0; }
+    button { cursor:pointer; border:1px solid var(--line); background:#1d3327; color:var(--fg); padding:8px 14px; border-radius:8px; font-size:13px; }
+    button:hover { border-color:var(--acc); }
+    button.primary { background:var(--acc); color:#06210f; border-color:var(--acc); font-weight:600; }
+    button.primary:disabled { opacity:.4; cursor:not-allowed; }
+    .status { margin-left:auto; font-size:13px; }
+    .ok { color:var(--acc); } .no { color:var(--bad); }
+    code { color:#9be29b; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>多边形重叠检测 · 实时 Demo</h1>
+    <p class="sub">在画布上点几下画一个地块；若和已有地块重叠，边框会立刻变红并挡住「完成」。</p>
+    <canvas id="cv" width="900" height="520"></canvas>
+    <div class="bar">
+      <button class="primary" id="finish" disabled>完成这块地</button>
+      <button id="undo">撤回上一点</button>
+      <button id="clear">清空全部</button>
+      <span class="status" id="status"></span>
+    </div>
+    <p class="sub">用的是 <code>polygon-overlap.js</code> 的 <code>findOverlaps()</code>。两种重叠都覆盖：<b>边相交</b>和<b>一个方块整个套在另一个里</b>（后者边不相交，但靠「点在多边形内」判出来）。</p>
+  </div>
+
+  <script src="polygon-overlap.js"></script>
+  <script>
+    const { polygonsOverlap, findOverlaps } = window.PolygonOverlap;
+    const cv = document.getElementById('cv');
+    const ctx = cv.getContext('2d');
+    const statusEl = document.getElementById('status');
+    const finishBtn = document.getElementById('finish');
+
+    /** 已完成的地块：[[ [x,y], ... ], ...] */
+    const fields = [];
+    /** 正在画的点 */
+    let current = [];
+    /** 鼠标位置（画橡皮筋线） */
+    let hover = null;
+
+    const COLORS = ['rgba(34,197,94,.28)', 'rgba(56,189,248,.28)', 'rgba(168,85,247,.28)', 'rgba(250,204,21,.28)', 'rgba(244,114,182,.28)'];
+
+    function overlapsCurrent() {
+      return current.length >= 3 ? findOverlaps(current, fields) : [];
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, cv.width, cv.height);
+
+      // 已完成地块
+      fields.forEach(function (f, i) {
+        drawPoly(f, COLORS[i % COLORS.length], '#e7f0e9');
+      });
+
+      // 正在画
+      const hits = overlapsCurrent();
+      const bad = hits.length > 0;
+      if (current.length >= 2) {
+        drawPoly(current, bad ? 'rgba(239,68,68,.30)' : 'rgba(234,179,8,.18)', bad ? '#ef4444' : '#eab308');
+      }
+      // 橡皮筋
+      if (current.length && hover) {
+        const last = current[current.length - 1];
+        ctx.strokeStyle = bad ? '#ef4444' : 'rgba(234,179,8,.7)';
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath(); ctx.moveTo(last[0], last[1]); ctx.lineTo(hover[0], hover[1]); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // 顶点
+      current.forEach(function (p) {
+        ctx.beginPath(); ctx.arc(p[0], p[1], 5, 0, Math.PI * 2);
+        ctx.fillStyle = bad ? '#ef4444' : '#fff'; ctx.fill();
+        ctx.strokeStyle = bad ? '#ef4444' : '#eab308'; ctx.lineWidth = 3; ctx.stroke();
+      });
+      // 已完成地块的顶点，便于看图
+      fields.forEach(function (f) {
+        f.forEach(function (p) {
+          ctx.beginPath(); ctx.arc(p[0], p[1], 3, 0, Math.PI * 2);
+          ctx.fillStyle = '#e7f0e9'; ctx.fill();
+        });
+      });
+
+      finishBtn.disabled = current.length < 3 || bad;
+      if (current.length < 3) statusEl.innerHTML = '<span style="color:var(--mut)">已画 ' + current.length + ' 点（至少 3 点）</span>';
+      else if (bad) statusEl.innerHTML = '<span class="no">⚠ 与已有地块 ' + hits.map(function (i) { return '#' + (i + 1); }).join('、') + ' 重叠</span>';
+      else statusEl.innerHTML = '<span class="ok">✓ 无重叠，可完成</span>';
+    }
+
+    function drawPoly(pts, fill, stroke) {
+      ctx.beginPath();
+      pts.forEach(function (p, i) { i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+      ctx.closePath();
+      ctx.fillStyle = fill; ctx.fill();
+      ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke();
+    }
+
+    function pos(e) {
+      const r = cv.getBoundingClientRect();
+      return [Math.round((e.clientX - r.left) * cv.width / r.width), Math.round((e.clientY - r.top) * cv.height / r.height)];
+    }
+
+    cv.addEventListener('click', function (e) {
+      current.push(pos(e));
+      draw();
+    });
+    cv.addEventListener('mousemove', function (e) {
+      hover = pos(e);
+      if (current.length) draw();
+    });
+
+    finishBtn.addEventListener('click', function () {
+      if (current.length < 3 || overlapsCurrent().length) return;
+      fields.push(current.slice());
+      current = [];
+      draw();
+    });
+    document.getElementById('undo').addEventListener('click', function () {
+      current.pop(); draw();
+    });
+    document.getElementById('clear').addEventListener('click', function () {
+      fields.length = 0; current = []; draw();
+    });
+
+    // 预置一块地，方便直接体验“重叠”
+    fields.push([[120, 120], [340, 120], [340, 300], [120, 300]]);
+    draw();
+  </script>
+</body>
+</html>
